@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import MarketingShell from "@/components/marketing-shell";
+import {
+  EmployerHoneypotField,
+  WorkEmailField,
+  PhoneField,
+} from "./_components/EmployerLeadFields";
 
 export const metadata: Metadata = {
   title: "Talk to our employer team — SpecialCarer",
@@ -48,10 +53,37 @@ export default async function Page({
         )}
         {(status === "missing" ||
           status === "invalid_email" ||
-          status === "invalid_country") && (
+          status === "invalid_country" ||
+          status === "invalid") && (
           <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
             Please double-check the form — some fields look incomplete or
             invalid.
+          </div>
+        )}
+        {status === "invalid_phone" && (
+          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+            Please provide a UK phone number, e.g. 07700 900123 or 020 7946
+            0958.
+          </div>
+        )}
+        {status === "free_email" && (
+          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+            Please use your organisation email address so we can respond to
+            the right domain. If you don&rsquo;t have one, email{" "}
+            <a href="mailto:hello@specialcarer.com" className="underline">
+              hello@specialcarer.com
+            </a>
+            .
+          </div>
+        )}
+        {status === "random_string" && (
+          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+            This submission was flagged as automated. If you&rsquo;re a real
+            person and your details look unusual, please email{" "}
+            <a href="mailto:hello@specialcarer.com" className="underline">
+              hello@specialcarer.com
+            </a>{" "}
+            and we&rsquo;ll respond personally.
           </div>
         )}
         {status === "rate_limited" && (
@@ -73,6 +105,9 @@ export default async function Page({
           action="/api/employers/lead"
           className="mt-10 grid sm:grid-cols-2 gap-5"
         >
+          {/* Honeypot: hidden from real users, invisible to screen
+              readers, unreachable via Tab. See /api/employers/lead. */}
+          <EmployerHoneypotField />
           <label className="text-sm">
             <span className="text-slate-700 font-medium">Company *</span>
             <input
@@ -93,25 +128,8 @@ export default async function Page({
               className="mt-1 w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
           </label>
-          <label className="text-sm">
-            <span className="text-slate-700 font-medium">Work email *</span>
-            <input
-              type="email"
-              name="work_email"
-              required
-              maxLength={200}
-              className="mt-1 w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="text-slate-700 font-medium">Phone (optional)</span>
-            <input
-              type="tel"
-              name="phone"
-              maxLength={40}
-              className="mt-1 w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand"
-            />
-          </label>
+          <WorkEmailField />
+          <PhoneField />
           <label className="text-sm">
             <span className="text-slate-700 font-medium">
               Where is your team? *

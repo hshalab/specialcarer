@@ -1,39 +1,22 @@
 "use client";
 
 import { useState } from "react";
-
-const FREE_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "hotmail.com",
-  "hotmail.co.uk",
-  "yahoo.com",
-  "yahoo.co.uk",
-  "outlook.com",
-  "outlook.co.uk",
-  "live.com",
-  "live.co.uk",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "tutanota.com",
-  "gmx.com",
-  "gmx.co.uk",
-]);
-
-function isFreeEmail(email: string): boolean {
-  const at = email.lastIndexOf("@");
-  if (at < 0) return false;
-  return FREE_DOMAINS.has(email.slice(at + 1).trim().toLowerCase());
-}
+import { isFreeWebmail, isGmail } from "@/lib/anti-spam/validate-lead";
 
 /**
  * Inline contact form on /organisations#contact and reused on the
- * sub-pages. Free-webmail addresses warn but don't block — same UX as
- * the registration flow.
+ * sub-pages.
+ *
+ * Free-webmail addresses get a soft client-side tip. Gmail specifically
+ * also gets a soft *server-side* block with an override: if the server
+ * comes back with `soft: true` (Gmail only), we show its warning and
+ * let the user resubmit with `use_personal_email: true` — this restores
+ * the pre-PR-175 escape hatch for micro-charities/sole traders whose
+ * only email is Gmail, without extending it to any other free-webmail
+ * provider (those stay a hard block, per policy).
+ *
+ * Includes a hidden honeypot field (`website`) that real users never
+ * see or fill in; the API drops anything that arrives with it filled.
  */
 export default function ContactForm({ source }: { source: string }) {
   const [name, setName] = useState("");
@@ -41,16 +24,17 @@ export default function ContactForm({ source }: { source: string }) {
   const [orgName, setOrgName] = useState("");
   const [role, setRole] = useState("");
   const [message, setMessage] = useState("");
-  const [override, setOverride] = useState(false);
+  const [website, setWebsite] = useState(""); // honeypot — must stay empty
   const [state, setState] = useState<"idle" | "sending" | "ok" | "err">("idle");
   const [err, setErr] = useState<string | null>(null);
+  const [gmailOverride, setGmailOverride] = useState(false);
+  const [gmailSoftBlocked, setGmailSoftBlocked] = useState(false);
 
-  const free = email ? isFreeEmail(email) : false;
+  const free = email ? isFreeWebmail(email) : false;
   const valid =
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
     name.trim().length >= 2 &&
-    orgName.trim().length >= 2 &&
-    (!free || override);
+    orgName.trim().length >= 2;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,22 +52,27 @@ export default function ContactForm({ source }: { source: string }) {
           role: role.trim() || undefined,
           message: message.trim() || undefined,
           source,
-          free_email_override: override,
+          website, // honeypot; left blank by real users
+          use_personal_email: gmailOverride || undefined,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
-        free_email?: boolean;
         message?: string;
+        soft?: boolean;
       };
       if (!res.ok || !json.ok) {
-        if (json.free_email) {
-          setErr(json.message ?? "Use a work email or tick 'Continue anyway'.");
-        } else if (res.status === 429) {
-          setErr("Too many submissions — try again in an hour.");
+        if (res.status === 429) {
+          setErr(json.message ?? "Too many submissions — try again in an hour.");
+          setGmailSoftBlocked(false);
+        } else if (json.soft && isGmail(email.trim().toLowerCase())) {
+          // Gmail soft-block: show the warning + let the user tick through.
+          setErr(json.message ?? "That looks like a personal Gmail address.");
+          setGmailSoftBlocked(true);
         } else {
-          setErr(json.error ?? "Couldn't send. Please try again.");
+          setErr(json.message ?? "Couldn't send. Please try again.");
+          setGmailSoftBlocked(false);
         }
         setState("err");
         return;
@@ -105,6 +94,23 @@ export default function ContactForm({ source }: { source: string }) {
 
   return (
     <form onSubmit={submit} className="space-y-3">
+      {/* Honeypot: hidden from real users, invisible to screen readers,
+          unreachable via Tab. Bots that auto-fill every input trip it. */}
+      <input
+        type="text"
+        name="website"
+        value={website}
+        onChange={(e) => setWebsite(e.target.value)}
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Your name *">
           <input
@@ -120,10 +126,7 @@ export default function ContactForm({ source }: { source: string }) {
             type="email"
             required
             value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              setOverride(false);
-            }}
+            onChange={(e) => setEmail(e.target.value)}
             className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
           />
         </Field>
@@ -131,17 +134,9 @@ export default function ContactForm({ source }: { source: string }) {
       {free && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
           <p className="text-xs text-amber-900">
-            That looks like a personal email. Use a work address where
-            possible — or tick the box to continue.
+            Tip: we recommend using your work email so we can respond
+            faster.
           </p>
-          <label className="mt-2 flex items-center gap-2 text-xs text-amber-900">
-            <input
-              type="checkbox"
-              checked={override}
-              onChange={(e) => setOverride(e.target.checked)}
-            />
-            Continue anyway
-          </label>
         </div>
       )}
       <div className="grid sm:grid-cols-2 gap-3">
@@ -173,7 +168,22 @@ export default function ContactForm({ source }: { source: string }) {
           className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
         />
       </Field>
-      {err && <p className="text-sm text-rose-700">{err}</p>}
+      {err && (
+        <div className="space-y-2">
+          <p className="text-sm text-rose-700">{err}</p>
+          {gmailSoftBlocked && (
+            <label className="flex items-center gap-2 text-xs text-amber-900">
+              <input
+                type="checkbox"
+                checked={gmailOverride}
+                onChange={(e) => setGmailOverride(e.target.checked)}
+              />
+              I don&rsquo;t have an organisation email — use this Gmail address
+              anyway
+            </label>
+          )}
+        </div>
+      )}
       <button
         type="submit"
         disabled={!valid || state === "sending"}
