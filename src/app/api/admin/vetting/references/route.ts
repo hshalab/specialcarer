@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/admin/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validateReferenceVerifyGuard } from "@/lib/vetting/reference-cqc";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ type Body = {
   id?: string;
   action?: "verify" | "reject";
   reason?: string;
+  admin_notes?: string;
 };
 
 export async function POST(req: Request) {
@@ -26,9 +28,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_args" }, { status: 400 });
   }
   const admin = createAdminClient();
+  const adminNotes =
+    typeof body.admin_notes === "string" ? body.admin_notes.trim() : "";
+  if (adminNotes.length > 1000) {
+    return NextResponse.json({ error: "admin_notes_too_long" }, { status: 400 });
+  }
+  if (body.action === "verify") {
+    const { data: reference } = await admin
+      .from("carer_references")
+      .select("safeguarding_dbs")
+      .eq("id", body.id)
+      .maybeSingle<{ safeguarding_dbs: string | null }>();
+    if (!reference) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    const guardError = validateReferenceVerifyGuard({
+      safeguardingDbs: reference.safeguarding_dbs,
+      adminNotes,
+    });
+    if (guardError) {
+      return NextResponse.json(
+        { error: guardError },
+        { status: 400 },
+      );
+    }
+  }
   const update: Record<string, unknown> = {
     verified_by: me.id,
     verified_at: new Date().toISOString(),
+    admin_notes: adminNotes || null,
   };
   if (body.action === "verify") {
     update.status = "verified";
