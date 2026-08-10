@@ -59,6 +59,13 @@ export default async function ReferencesQueuePage({
   )
     ? (sp.reference_type as ReferenceType)
     : "all";
+  const statusFilterHref = (nextFilter: string) => {
+    const params = new URLSearchParams({ filter: nextFilter });
+    if (sp.reference_type) {
+      params.set("reference_type", sp.reference_type);
+    }
+    return `/admin/trust-safety/references?${params.toString()}`;
+  };
   const admin = createAdminClient();
   let q = admin
     .from("carer_references")
@@ -98,10 +105,10 @@ export default async function ReferencesQueuePage({
       </div>
 
       <div className="flex gap-2 text-xs">
-        {["submitted", "verified", "rejected", "expired", "all"].map((f) => (
+        {["invited", "submitted", "verified", "rejected", "expired", "all"].map((f) => (
           <Link
             key={f}
-            href={`/admin/trust-safety/references?filter=${f}`}
+            href={statusFilterHref(f)}
             className={`px-3 py-1.5 rounded-full border ${
               filter === f
                 ? "bg-brand-ink text-white border-brand-ink"
@@ -224,9 +231,13 @@ export default async function ReferencesQueuePage({
                 <strong>Admin notes:</strong> {r.admin_notes}
               </p>
             )}
-            {r.status === "submitted" && (
+            {(r.status === "submitted" || r.status === "invited") && (
               <div className="mt-3">
-                <RefRowActions id={r.id} safeguardingDbs={r.safeguarding_dbs} />
+                <RefRowActions
+                  id={r.id}
+                  safeguardingDbs={r.safeguarding_dbs}
+                  status={r.status}
+                />
               </div>
             )}
           </li>
